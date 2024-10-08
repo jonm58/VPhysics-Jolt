@@ -511,7 +511,8 @@ JoltPhysicsSpring::~JoltPhysicsSpring()
 	if ( m_pObjectEnd )
 		m_pObjectEnd->RemoveDestroyedListener( this );
 
-	m_pPhysicsSystem->RemoveConstraint( m_pConstraint );
+	if ( m_pConstraint )
+		m_pPhysicsSystem->RemoveConstraint( m_pConstraint );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -530,6 +531,9 @@ void JoltPhysicsSpring::GetEndpoints( Vector *worldPositionStart, Vector *worldP
 
 void JoltPhysicsSpring::SetSpringConstant( float flSpringConstant )
 {
+	if ( !m_pConstraint )
+		return;
+
 	m_pObjectStart->Wake();
 	m_pObjectEnd->Wake();
 
@@ -539,6 +543,9 @@ void JoltPhysicsSpring::SetSpringConstant( float flSpringConstant )
 
 void JoltPhysicsSpring::SetSpringDamping( float flSpringDamping )
 {
+	if ( !m_pConstraint )
+		return;
+
 	m_pObjectStart->Wake();
 	m_pObjectEnd->Wake();
 
@@ -548,6 +555,9 @@ void JoltPhysicsSpring::SetSpringDamping( float flSpringDamping )
 
 void JoltPhysicsSpring::SetSpringLength( float flSpringLength )
 {
+	if ( !m_pConstraint )
+		return;
+
 	m_pObjectStart->Wake();
 	m_pObjectEnd->Wake();
 
@@ -576,6 +586,11 @@ void JoltPhysicsSpring::OnJoltPhysicsObjectDestroyed( JoltPhysicsObject *pObject
 
 	if ( pObject == m_pObjectEnd )
 		m_pObjectEnd = nullptr;
+
+	// Raphael: As soon as one of the physics objects / bodies get destroyed, 
+	//          we need to remove the constraint or else it will crash on the next simulation.
+	m_pPhysicsSystem->RemoveConstraint( m_pConstraint );
+	m_pConstraint = nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
