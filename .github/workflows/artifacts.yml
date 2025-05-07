@@ -16,7 +16,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: RaphaelIT7/mini-source-sdk
-        ref: gmod-fixed-convars
+        ref: gmod-changes
 
     - name: Checkout VPhysics Jolt
       uses: actions/checkout@v4
@@ -70,7 +70,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: RaphaelIT7/mini-source-sdk
-        ref: gmod-fixed-convars
+        ref: gmod-changes
 
     - name: Checkout VPhysics Jolt
       uses: actions/checkout@v4
@@ -93,4 +93,45 @@ jobs:
       with:
         name: vphysics_jolt_${{ matrix.source_branch }}_linux32
         path: ${{ matrix.source_branch }}/game
+        if-no-files-found: error
+
+  linux-gmod-dedicated:
+    runs-on: ubuntu-latest
+    container: debian:bullseye
+    name: "GMod Dedicated Server"
+
+    steps:
+    - name: Install Dependencies
+      run: |
+        dpkg --add-architecture i386
+        apt update
+        apt install -y build-essential git libstdc++6:i386 gcc-multilib g++-multilib
+
+    - name: Checkout Mini Source SDK
+      uses: actions/checkout@v4
+      with:
+        repository: RaphaelIT7/mini-source-sdk
+        ref: gmod-changes
+
+    - name: Checkout VPhysics Jolt
+      uses: actions/checkout@v4
+      with:
+        path: gmod/src/vphysics_jolt
+        submodules: recursive
+
+    - name: Build GCC x86
+      working-directory: gmod/src
+      run: |
+        chmod +x createjoltprojects_server.sh
+        chmod +x devtools/bin/vpc_linux
+        chmod +x devtools/bin/vpc
+        chmod +x devtools/gendbg.sh
+        ./createjoltprojects_server.sh 
+        make -f jolt.mak -j $(nproc)
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: vphysics_jolt_gmod_dedicated_linux32
+        path: gmod/game
         if-no-files-found: error
