@@ -1,0 +1,188 @@
+name: Build Release
+
+on: [workflow_dispatch]
+
+jobs:
+  release_draft:
+    name: "Create Draft"
+    runs-on: ubuntu-latest
+    container: debian:bullseye
+    permissions:
+      contents: write
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: shogo82148/actions-create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.run_number }}
+          release_name: Build ${{ github.run_number }}
+          draft: true
+          prerelease: false
+          make_latest: false
+
+  windows:
+    needs: release_draft
+    strategy:
+      fail-fast: false
+      matrix:
+        source_branch: [sdk2013-sp, sdk2013-mp, asw, gmod]
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout Mini Source SDK
+      uses: actions/checkout@v4
+      with:
+        repository: RaphaelIT7/mini-source-sdk
+        ref: gmod-changes
+
+    - name: Checkout VPhysics Jolt
+      uses: actions/checkout@v4
+      with:
+        path: ${{ matrix.source_branch }}/src/vphysics_jolt
+        submodules: recursive
+
+    - name: Find Visual Studio
+      run: |
+        $installationPath = Get-VSSetupInstance `
+          | Select-VSSetupInstance -Require Microsoft.VisualStudio.Workload.NativeDesktop -Latest `
+          | Select-Object -ExpandProperty InstallationPath
+        Write-Output "VSDEVCMD=${installationPath}\Common7\Tools\VsDevCmd.bat" `
+          | Out-File -FilePath "${Env:GITHUB_ENV}" -Append
+
+    - name: Build MSVC x86
+      working-directory: ${{ matrix.source_branch }}/src
+      run: |
+        & "${Env:COMSPEC}" /s /c "`"${Env:VSDEVCMD}`" -arch=x86 -host_arch=x64 -no_logo && set" `
+          | % { , ($_ -Split '=', 2) } `
+          | % { [System.Environment]::SetEnvironmentVariable($_[0], $_[1]) }
+        .\fix_registry.bat
+        .\createjoltprojects.bat
+        devenv jolt.sln /upgrade
+        msbuild jolt.sln /nodeReuse:false /t:Rebuild /p:Configuration=Release /p:Platform=x86 /m /v:minimal
+
+    - name: Create zip file
+      shell: pwsh
+      run: |
+        Compress-Archive "${{ matrix.source_branch }}/game/bin" "vphysics_jolt_${{ matrix.source_branch }}_win32.zip"
+
+    - name: Upload release files
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.release_draft.outputs.upload_url }}
+        asset_path: vphysics_jolt_${{ matrix.source_branch }}_win32.zip
+        asset_name: vphysics_jolt_${{ matrix.source_branch }}_win32
+        asset_content_type: application/octet-stream
+
+  linux:
+    needs: release_draft
+    strategy:
+      fail-fast: false
+      matrix:
+        source_branch: [sdk2013-sp, sdk2013-mp, gmod]
+    runs-on: ubuntu-latest
+    container: debian:bullseye
+    permissions:
+      contents: write
+    steps:
+    - name: Install Dependencies
+      run: |
+        dpkg --add-architecture i386
+        apt update
+        apt install -y build-essential git libstdc++6:i386 gcc-multilib g++-multilib zip
+
+    - name: Checkout Mini Source SDK
+      uses: actions/checkout@v4
+      with:
+        repository: RaphaelIT7/mini-source-sdk
+        ref: gmod-changes
+
+    - name: Checkout VPhysics Jolt
+      uses: actions/checkout@v4
+      with:
+        path: ${{ matrix.source_branch }}/src/vphysics_jolt
+        submodules: recursive
+
+    - name: Build GCC x86
+      working-directory: ${{ matrix.source_branch }}/src
+      run: |
+        chmod +x createjoltprojects.sh
+        chmod +x devtools/bin/vpc_linux
+        chmod +x devtools/bin/vpc
+        chmod +x devtools/gendbg.sh
+        ./createjoltprojects.sh 
+        make -f jolt.mak -j $(nproc)
+
+    - name: Create zip file
+      run: |
+        cd ${{ matrix.source_branch }}/game
+        zip -r vphysics_jolt_${{ matrix.source_branch }}_linux32.zip bin
+        mv vphysics_jolt_${{ matrix.source_branch }}_linux32.zip ../../
+
+    - name: Upload release files
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.release_draft.outputs.upload_url }}
+        asset_path: vphysics_jolt_${{ matrix.source_branch }}_linux32.zip
+        asset_name: vphysics_jolt_${{ matrix.source_branch }}_linux32
+        asset_content_type: application/octet-stream
+
+  linux-gmod-dedicated:
+    needs: release_draft
+    runs-on: ubuntu-latest
+    container: debian:bullseye
+    name: "GMod Dedicated Server"
+    permissions:
+      contents: write
+    steps:
+    - name: Install Dependencies
+      run: |
+        dpkg --add-architecture i386
+        apt update
+        apt install -y build-essential git libstdc++6:i386 gcc-multilib g++-multilib zip
+
+    - name: Checkout Mini Source SDK
+      uses: actions/checkout@v4
+      with:
+        repository: RaphaelIT7/mini-source-sdk
+        ref: gmod-changes
+
+    - name: Checkout VPhysics Jolt
+      uses: actions/checkout@v4
+      with:
+        path: gmod/src/vphysics_jolt
+        submodules: recursive
+
+    - name: Build GCC x86
+      working-directory: gmod/src
+      run: |
+        chmod +x createjoltprojects_server.sh
+        chmod +x devtools/bin/vpc_linux
+        chmod +x devtools/bin/vpc
+        chmod +x devtools/gendbg.sh
+        ./createjoltprojects_server.sh 
+        make -f jolt.mak -j $(nproc)
+
+    - name: Create zip file
+      run: |
+        cd gmod/game
+        zip -r vphysics_jolt_gmod_dedicated_linux32.zip bin
+        mv vphysics_jolt_gmod_dedicated_linux32.zip ../../
+
+    - name: Upload release files
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.release_draft.outputs.upload_url }}
+        asset_path: vphysics_jolt_gmod_dedicated_linux32.zip
+        asset_name: vphysics_jolt_gmod_dedicated_linux32
+        asset_content_type: application/octet-stream
