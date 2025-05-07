@@ -241,7 +241,7 @@ JoltPhysicsEnvironment::JoltPhysicsEnvironment()
 JoltPhysicsEnvironment::~JoltPhysicsEnvironment()
 {
 	// Clear any pending dead bodies.
-	DeleteDeadObjects();
+	DeleteDeadObjects(true);
 
 	// Clear out all our bodies.
 	m_PhysicsSystem.GetBodies( m_CachedBodies );
