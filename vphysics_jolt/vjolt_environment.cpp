@@ -519,14 +519,11 @@ JoltPhysicsSpring::~JoltPhysicsSpring()
 
 void JoltPhysicsSpring::GetEndpoints( Vector *worldPositionStart, Vector *worldPositionEnd )
 {
-	// TODO(Josh): Implement this.
-	Log_Stub( LOG_VJolt );
-
 	if ( worldPositionStart )
-		*worldPositionStart = vec3_origin;
+		m_pObjectStart->GetPosition(worldPositionStart, NULL);
 
 	if ( worldPositionEnd )
-		*worldPositionEnd = vec3_origin;
+		m_pObjectEnd->GetPosition(worldPositionEnd, NULL);
 }
 
 void JoltPhysicsSpring::SetSpringConstant( float flSpringConstant )
