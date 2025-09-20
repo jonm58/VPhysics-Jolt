@@ -790,6 +790,9 @@ void JoltPhysicsEnvironment::Simulate( float deltaTime )
 		settings.mNumVelocitySteps = vjolt_velocity_steps.GetInt();
 		settings.mNumPositionSteps = vjolt_position_steps.GetInt();
 		settings.mDeterministicSimulation = vjolt_deterministic.GetBool();
+		// Raphael: These seem to help against objects clipping through others? Idk, should test them more and read the docs.
+		settings.mLinearCastThreshold = 0;
+		settings.mLinearCastMaxPenetration = 0;
 		m_PhysicsSystem.SetPhysicsSettings( settings );
 	}
 
@@ -1124,10 +1127,14 @@ void JoltPhysicsEnvironment::PreRestore( const physprerestoreparams_t &params )
 {
 	m_SaveRestorePointerMap.clear();
 
+#if defined(GAME_GMOD_64X)
+	Log_Stub( LOG_VJolt ); // Raphael (ToDo): Figure out what happens here normally... I should check the SDK again and see if we have the previous structure used by all other branches.
+#else
 	for ( int i = 0; i < params.recreatedObjectCount; i++ )
 		AddPhysicsSaveRestorePointer(
 			reinterpret_cast< uintp >( params.recreatedObjectList[ i ].pOldObject ),
 			params.recreatedObjectList[ i ].pNewObject );
+#endif
 }
 
 bool JoltPhysicsEnvironment::Restore( const physrestoreparams_t &params )
@@ -1616,3 +1623,16 @@ void JoltPhysicsEnvironment::HandleDebugDumpingEnvironment( void *pReturnAddress
 	s_bShouldDumpEnvironmentClient = false;
 	s_bShouldDumpEnvironmentServer = false;
 }
+
+#if defined(GAME_GMOD_64X)
+// NOTE: physprerestoreparams_t was named to physpresaverestoreparams_t though we kept the original for now.
+void JoltPhysicsEnvironment::PreSave(const physprerestoreparams_t& params)
+{
+	Log_Stub( LOG_VJolt );
+}
+
+void JoltPhysicsEnvironment::PostSave()
+{
+	Log_Stub( LOG_VJolt );
+}
+#endif
