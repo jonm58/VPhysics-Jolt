@@ -189,7 +189,7 @@ public:
 private:
 
 	void RemoveBodyAndDeleteObject( JoltPhysicsObject* pObject );
-	void DeleteDeadObjects( bool delBodies = false );
+	void DeleteDeadObjects();
 
 	template <typename T>
 	void AddPhysicsSaveRestorePointer( uintp oldPtr, T* newPtr );
