@@ -64,11 +64,12 @@ JoltPhysicsObject::JoltPhysicsObject( JPH::Body *pBody, JoltPhysicsEnvironment *
 	UpdateMaterialProperties();
 }
 
-JoltPhysicsObject::JoltPhysicsObject( JPH::Body *pBody, JoltPhysicsEnvironment *pEnvironment, void *pGameData, JPH::StateRecorder &recorder )
+JoltPhysicsObject::JoltPhysicsObject( JPH::Body *pBody, JoltPhysicsEnvironment *pEnvironment, void *pGameData, const char *pName, JPH::StateRecorder &recorder )
 	: m_pBody( pBody )
 	, m_pEnvironment( pEnvironment )
 	, m_pPhysicsSystem( pEnvironment->GetPhysicsSystem() )
 	, m_pGameData( pGameData )
+	, m_pName( pName )
 {
 	RestoreObjectState( recorder );
 }
@@ -1195,6 +1196,13 @@ bool JoltPhysicsObject::IsControlledByGame() const
 
 void JoltPhysicsObject::SaveObjectState( JPH::StateRecorder &recorder )
 {
+	m_pBody->GetBodyCreationSettings().SaveBinaryState( recorder );
+
+	// PiMoN HACK!!!
+	m_pBody->GetShape()->SaveBinaryState( recorder ); // need to save this for objects without collision model (car wheels, or any procedural sphere)
+	recorder.Write( m_pBody->GetShape()->GetCenterOfMass() ); // need to save this for objects with collision model because we don't create a shape but rather use an existing one
+	// HACK END
+
 	m_pBody->SaveState( recorder );
 
 	// Josh: Do not write m_pGameData, as this is passed in, in UnserializeObjectFromBuffer.
@@ -1204,7 +1212,7 @@ void JoltPhysicsObject::SaveObjectState( JPH::StateRecorder &recorder )
 	recorder.Write( m_callbackFlags );
 	recorder.Write( m_bStatic );
 	recorder.Write( m_bPinned );
-	recorder.Write( m_materialIndex );
+	JoltPhysicsMaterialIndexSaveOps::GetInstance().SaveJolt( m_materialIndex, recorder );
 	recorder.Write( m_contents );
 	recorder.Write( m_flCachedMass );
 	recorder.Write( m_flCachedInvMass );
@@ -1217,6 +1225,17 @@ void JoltPhysicsObject::SaveObjectState( JPH::StateRecorder &recorder )
 	// Josh:
 	// In regular VPhysics, shadows are serialized but then forced to never be read.
 	// Lets just not bother serializing these.
+	// PiMoN: says who? It IS read! thanks for giving me a day worth of headache as to why some physics objects fall underground on load...
+	// I think you are confusing object's shadow controller with PIID_IPHYSICSSHADOWCONTROLLER, which is in fact not serialized
+	if ( m_pShadowController )
+	{
+		recorder.Write( true ); // oh man...
+		m_pShadowController->SaveControllerState( recorder );
+	}
+	else
+	{
+		recorder.Write( false ); // oh man again...
+	}
 }
 
 void JoltPhysicsObject::RestoreObjectState( JPH::StateRecorder &recorder )
@@ -1234,7 +1253,7 @@ void JoltPhysicsObject::RestoreObjectState( JPH::StateRecorder &recorder )
 	recorder.Read( m_callbackFlags );
 	recorder.Read( m_bStatic );
 	recorder.Read( m_bPinned );
-	recorder.Read( m_materialIndex );
+	JoltPhysicsMaterialIndexSaveOps::GetInstance().RestoreJolt( m_materialIndex, recorder );
 	recorder.Read( m_contents );
 	recorder.Read( m_flCachedMass );
 	recorder.Read( m_flCachedInvMass );
@@ -1243,6 +1262,11 @@ void JoltPhysicsObject::RestoreObjectState( JPH::StateRecorder &recorder )
 	recorder.Read( m_flBuoyancyRatio );
 	recorder.Read( m_flVolume );
 	recorder.Read( m_GameMaterial );
+
+	bool bShadowController;
+	recorder.Read( bShadowController );
+	if ( bShadowController )
+		m_pShadowController = static_cast< JoltPhysicsShadowController * >( m_pEnvironment->CreateShadowController( this, recorder ) );
 
 	// Recompute states.
 	UpdateMaterialProperties();

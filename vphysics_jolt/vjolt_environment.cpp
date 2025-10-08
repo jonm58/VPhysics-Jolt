@@ -446,6 +446,7 @@ class JoltPhysicsSpring final : public IPhysicsSpring, public IJoltObjectDestroy
 {
 public:
 	JoltPhysicsSpring( JPH::PhysicsSystem *pPhysicsSystem, JoltPhysicsObject *pObjectStart, JoltPhysicsObject *pObjectEnd, springparams_t *pParams );
+	JoltPhysicsSpring( JPH::PhysicsSystem *pPhysicsSystem, JoltPhysicsObject *pObjectStart, JoltPhysicsObject *pObjectEnd, JPH::StateRecorder &recorder );
 	~JoltPhysicsSpring() override;
 
 	void GetEndpoints( Vector *worldPositionStart, Vector *worldPositionEnd ) override;
@@ -457,6 +458,9 @@ public:
 	IPhysicsObject *GetEndObject() override;
 
 	void OnJoltPhysicsObjectDestroyed( JoltPhysicsObject *pObject );
+
+	void SaveSpring( JPH::StateRecorder &recorder );
+	void RestoreSpring( JPH::StateRecorder &recorder );
 
 private:
 	JPH::PhysicsSystem *m_pPhysicsSystem = nullptr;
@@ -492,6 +496,19 @@ JoltPhysicsSpring::JoltPhysicsSpring( JPH::PhysicsSystem *pPhysicsSystem, JoltPh
 
 	m_pConstraint = static_cast< JPH::DistanceConstraint * >( settings.Create( *refBody, *attBody ) );
 	m_pConstraint->SetEnabled( true );
+
+	m_pPhysicsSystem->AddConstraint( m_pConstraint );
+
+	m_pObjectStart->AddDestroyedListener( this );
+	m_pObjectEnd->AddDestroyedListener( this );
+}
+
+JoltPhysicsSpring::JoltPhysicsSpring( JPH::PhysicsSystem *pPhysicsSystem, JoltPhysicsObject *pObjectStart, JoltPhysicsObject *pObjectEnd, JPH::StateRecorder &recorder )
+	: m_pPhysicsSystem( pPhysicsSystem )
+	, m_pObjectStart( pObjectStart )
+	, m_pObjectEnd( pObjectEnd )
+{
+	RestoreSpring( recorder );
 
 	m_pPhysicsSystem->AddConstraint( m_pConstraint );
 
@@ -590,6 +607,32 @@ void JoltPhysicsSpring::OnJoltPhysicsObjectDestroyed( JoltPhysicsObject *pObject
 		m_pPhysicsSystem->RemoveConstraint( m_pConstraint );
 		m_pConstraint = nullptr;
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void JoltPhysicsSpring::SaveSpring( JPH::StateRecorder &recorder )
+{
+	m_pConstraint->GetConstraintSettings()->SaveBinaryState( recorder );
+	m_pConstraint->SaveState( recorder );
+}
+
+void JoltPhysicsSpring::RestoreSpring( JPH::StateRecorder &recorder )
+{
+	JPH::ConstraintSettings::ConstraintResult result = JPH::ConstraintSettings::sRestoreFromBinaryState( recorder );
+
+	if ( result.HasError() )
+	{
+		Log_Warning( LOG_VJolt, "Error restoring spring: %s.\n", result.GetError().c_str() );
+		return;
+	}
+
+	JPH::Body *refBody = m_pObjectStart->GetBody();
+	JPH::Body *attBody = m_pObjectEnd->GetBody();
+
+	const JPH::TwoBodyConstraintSettings *pSettings = static_cast< const JPH::TwoBodyConstraintSettings * >( result.Get().GetPtr() );
+	m_pConstraint = static_cast< JPH::DistanceConstraint * >( pSettings->Create( *refBody, *attBody ) );
+	m_pConstraint->SetEnabled( true );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -711,6 +754,13 @@ IPhysicsShadowController *JoltPhysicsEnvironment::CreateShadowController( IPhysi
 	return pController;
 }
 
+IPhysicsShadowController *JoltPhysicsEnvironment::CreateShadowController( IPhysicsObject *pObject, JPH::StateRecorder &recorder )
+{
+	JoltPhysicsShadowController *pController = new JoltPhysicsShadowController( static_cast<JoltPhysicsObject *>( pObject ), recorder );
+	m_pPhysicsControllers.push_back( pController );
+	return pController;
+}
+
 void JoltPhysicsEnvironment::DestroyShadowController( IPhysicsShadowController *pShadowController )
 {
 	JoltPhysicsShadowController *pController = static_cast< JoltPhysicsShadowController * >( pShadowController );
@@ -757,6 +807,15 @@ IPhysicsVehicleController *JoltPhysicsEnvironment::CreateVehicleController( IPhy
 	JoltPhysicsObject *pJoltCarBodyObject = static_cast< JoltPhysicsObject * >( pVehicleBodyObject );
 
 	JoltPhysicsVehicleController *pController = new JoltPhysicsVehicleController( this, &m_PhysicsSystem, pJoltCarBodyObject, params, nVehicleType, pGameTrace );
+	m_pPhysicsControllers.push_back( pController );
+	return pController;
+}
+
+IPhysicsVehicleController *JoltPhysicsEnvironment::CreateVehicleController( IPhysicsObject *pVehicleBodyObject, int iWheelCount, JoltPhysicsObject **pWheels, JPH::StateRecorder &recorder )
+{
+	JoltPhysicsObject *pJoltCarBodyObject = static_cast< JoltPhysicsObject * >( pVehicleBodyObject );
+
+	JoltPhysicsVehicleController *pController = new JoltPhysicsVehicleController( this, &m_PhysicsSystem, pJoltCarBodyObject, iWheelCount, pWheels, recorder );
 	m_pPhysicsControllers.push_back( pController );
 	return pController;
 }
@@ -1067,10 +1126,8 @@ bool JoltPhysicsEnvironment::Save( const physsaveparams_t &params )
 		case PIID_IPHYSICSOBJECT:
 		{
 			JoltPhysicsObject *pObject = reinterpret_cast< JoltPhysicsObject * >( params.pObject );
-			JPH::BodyCreationSettings bodyCreationSettings = pObject->GetBody()->GetBodyCreationSettings();
 
 			recorder.Write( reinterpret_cast<uintptr_t>( pObject ) );
-			bodyCreationSettings.SaveBinaryState( recorder );
 			pObject->SaveObjectState( recorder );
 			return true;
 		}
@@ -1078,37 +1135,71 @@ bool JoltPhysicsEnvironment::Save( const physsaveparams_t &params )
 			// This just returns false in regular VPhysics.
 			return false;
 		case PIID_IPHYSICSSPRING:
-			Log_Warning( LOG_VJolt, "Saving PIID_IPHYSICSSPRING is unsupported right now.\n" );
-			return false;
+		{
+			JoltPhysicsSpring *pSpring = reinterpret_cast< JoltPhysicsSpring * >( params.pObject );
+
+			recorder.Write( reinterpret_cast<uintptr_t>( pSpring ) );
+			pSpring->SaveSpring( recorder );
+			return true;
+		}
 		case PIID_IPHYSICSCONSTRAINTGROUP:
-			Log_Warning( LOG_VJolt, "Saving PIID_IPHYSICSCONSTRAINTGROUP is unsupported right now.\n" );
-			return false;
+		{
+			JoltPhysicsConstraintGroup *pConstraintGroup = reinterpret_cast< JoltPhysicsConstraintGroup * >( params.pObject );
+
+			recorder.Write( reinterpret_cast<uintptr_t>( pConstraintGroup ) );
+			pConstraintGroup->SaveConstraintGroup( recorder );
+			return true;
+		}
 		case PIID_IPHYSICSCONSTRAINT:
 		{
 			JoltPhysicsConstraint *pConstraint = reinterpret_cast< JoltPhysicsConstraint * >( params.pObject );
 			JoltPhysicsObject *pRefObject = reinterpret_cast< JoltPhysicsObject * >( pConstraint->GetReferenceObject() );
 			JoltPhysicsObject *pAttObject = reinterpret_cast< JoltPhysicsObject * >( pConstraint->GetAttachedObject() );
+			JoltPhysicsConstraintGroup *pConstraintGroup = reinterpret_cast< JoltPhysicsConstraintGroup * >( pConstraint->GetGroup() );
 
 			recorder.Write( reinterpret_cast<uintptr_t>( pConstraint ) );
 			recorder.Write( reinterpret_cast<uintptr_t>( pRefObject ) );
 			recorder.Write( reinterpret_cast<uintptr_t>( pAttObject ) );
+			recorder.Write( reinterpret_cast<uintptr_t>( pConstraintGroup ) );
 			pConstraint->SaveConstraintSettings( recorder );
 			return true;
 		}
 		case PIID_IPHYSICSSHADOWCONTROLLER:
-			Log_Warning( LOG_VJolt, "Saving PIID_IPHYSICSSHADOWCONTROLLER is unsupported right now.\n" );
+			// Given saving this just returns false, this should never happen.
 			return false;
 		case PIID_IPHYSICSPLAYERCONTROLLER:
 			// This just returns false in regular VPhysics.
 			return false;
 		case PIID_IPHYSICSMOTIONCONTROLLER:
-			Log_Warning( LOG_VJolt, "Saving PIID_IPHYSICSMOTIONCONTROLLER is unsupported right now.\n" );
-			return false;
+		{
+			JoltPhysicsMotionController *pMotionController = reinterpret_cast< JoltPhysicsMotionController * >( params.pObject );
+
+			int iObjectsCount = pMotionController->CountObjects();
+			IPhysicsObject **pObjects = (IPhysicsObject **)stackalloc( sizeof( IPhysicsObject * ) * iObjectsCount );
+			pMotionController->GetObjects( pObjects );
+
+			recorder.Write( reinterpret_cast<uintptr_t>( pMotionController ) );
+			recorder.Write( iObjectsCount );
+			for ( int i = 0; i < iObjectsCount; i++ )
+				recorder.Write( reinterpret_cast<uintptr_t>( pObjects[i] ) );
+			return true;
+		}
 		case PIID_IPHYSICSVEHICLECONTROLLER:
-			Log_Warning( LOG_VJolt, "Saving PIID_IPHYSICSVEHICLECONTROLLER is unsupported right now.\n" );
-			return false;
+		{
+			JoltPhysicsVehicleController *pVehicleController = reinterpret_cast< JoltPhysicsVehicleController * >( params.pObject );
+			JoltPhysicsObject *pBodyObject = reinterpret_cast< JoltPhysicsObject * >( pVehicleController->GetBody() );
+			int iWheelCount = pVehicleController->GetWheelCount();
+
+			recorder.Write( reinterpret_cast<uintptr_t>( pVehicleController ) );
+			recorder.Write( reinterpret_cast<uintptr_t>( pBodyObject ) );
+			recorder.Write( iWheelCount );
+			for ( int i = 0; i < iWheelCount; i++ )
+				recorder.Write( reinterpret_cast<uintptr_t>( pVehicleController->GetWheel( i ) ) );
+			pVehicleController->SaveControllerState( recorder );
+			return true;
+		}
 		case PIID_IPHYSICSGAMETRACE:
-			Log_Warning( LOG_VJolt, "Saving PIID_IPHYSICSGAMETRACE is unsupported right now.\n" );
+			// This doesn't exist as a save option in regular VPhysics.
 			return false;
 	}
 }
@@ -1136,16 +1227,37 @@ bool JoltPhysicsEnvironment::Restore( const physrestoreparams_t &params )
 			return false;
 		case PIID_IPHYSICSOBJECT:
 		{
+			uintp originalPtr;
 			const JPH::Shape* pShape = params.pCollisionModel->ToShape();
 			JPH::BodyCreationSettings bodyCreationSettings;
-			uintp originalPtr;
+			JPH::Vec3 massCenterOverride;
 
 			recorder.Read( originalPtr );
 			bodyCreationSettings.RestoreBinaryState( recorder );
+			JPH::ShapeSettings::ShapeResult result = JPH::Shape::sRestoreFromBinaryState( recorder );
+
+			// PiMoN: if there is no collision model, it likely means that this object is car's wheels
+			if ( !pShape )
+			{
+				// we need our saved shape, or we're gonna crash...
+				if ( result.HasError() )
+				{
+					Log_Warning( LOG_VJolt, "Error restoring object: %s.\n", result.GetError().c_str() );
+					return false;
+				}
+
+				pShape = result.Get();
+			}
+
+			// PiMoN: see HACK!!! in JoltPhysicsObject::SaveObjectState
+			// this shit took me 4 days of debugging to figure out!
+			recorder.Read( massCenterOverride );
+			pShape = CreateCOMOverrideShape( pShape, massCenterOverride );
+
 			bodyCreationSettings.SetShape( pShape );
 			JPH::Body *pBody = bodyInterface.CreateBody( bodyCreationSettings );
 			bodyInterface.AddBody( pBody->GetID(), JPH::EActivation::DontActivate );
-			JoltPhysicsObject *pJoltObject = new JoltPhysicsObject( pBody, this, params.pGameData, recorder );
+			JoltPhysicsObject *pJoltObject = new JoltPhysicsObject( pBody, this, params.pGameData, params.pName, recorder );
 
 			*params.ppObject = reinterpret_cast< void * >( pJoltObject );
 			AddPhysicsSaveRestorePointer( originalPtr, pJoltObject );
@@ -1156,20 +1268,42 @@ bool JoltPhysicsEnvironment::Restore( const physrestoreparams_t &params )
 			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSFLUIDCONTROLLER is unsupported right now.\n" );
 			return false;
 		case PIID_IPHYSICSSPRING:
-			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSSPRING is unsupported right now.\n" );
-			return false;
+		{
+			uintp originalPtr, objectStartPtr, objectEndPtr;
+			recorder.Read( originalPtr );
+			recorder.Read( objectStartPtr );
+			recorder.Read( objectEndPtr );
+
+			JoltPhysicsObject *pJoltObjectStart = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( objectStartPtr );
+			JoltPhysicsObject *pJoltObjectEnd = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( objectEndPtr );
+			JoltPhysicsSpring *pJoltSpring = new JoltPhysicsSpring( &m_PhysicsSystem, pJoltObjectStart, pJoltObjectEnd, recorder );
+
+			*params.ppObject = reinterpret_cast< void * >( pJoltSpring );
+			AddPhysicsSaveRestorePointer( originalPtr, pJoltSpring );
+			return true;
+		}
 		case PIID_IPHYSICSCONSTRAINTGROUP:
-			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSCONSTRAINTGROUP is unsupported right now.\n" );
-			return false;
+		{
+			uintp originalPtr;
+			recorder.Read( originalPtr );
+
+			JoltPhysicsConstraintGroup *pJoltConstraintGroup = new JoltPhysicsConstraintGroup();
+			pJoltConstraintGroup->RestoreConstraintGroup( recorder );
+
+			*params.ppObject = reinterpret_cast< void * >( pJoltConstraintGroup );
+			AddPhysicsSaveRestorePointer( originalPtr, pJoltConstraintGroup );
+			return true;
+		}
 		case PIID_IPHYSICSCONSTRAINT:
 		{
-			uintp constraintPtr, refObjectPtr, attObjectPtr;
+			uintp originalPtr, refObjectPtr, attObjectPtr, constraintGroupPtr;
 			constraintType_t type;
 
-			recorder.Read( constraintPtr );
+			recorder.Read( originalPtr );
 			recorder.Read( refObjectPtr );
 			recorder.Read( attObjectPtr );
-			
+			recorder.Read( constraintGroupPtr );
+
 			recorder.Read( type );
 			JPH::ConstraintSettings::ConstraintResult result = JPH::ConstraintSettings::sRestoreFromBinaryState( recorder );
 
@@ -1179,32 +1313,77 @@ bool JoltPhysicsEnvironment::Restore( const physrestoreparams_t &params )
 				return false;
 			}
 
-			JoltPhysicsObject* pRefObject = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( refObjectPtr );
-			JoltPhysicsObject* pAttObject = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( attObjectPtr );
+			JoltPhysicsObject *pRefObject = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( refObjectPtr );
+			JoltPhysicsObject *pAttObject = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( attObjectPtr );
+			JoltPhysicsConstraintGroup *pGroup = LookupPhysicsSaveRestorePointer< JoltPhysicsConstraintGroup >( constraintGroupPtr );
 
 			const JPH::TwoBodyConstraintSettings *pSettings = static_cast< const JPH::TwoBodyConstraintSettings * >( result.Get().GetPtr() );
 			JPH::Constraint *pConstraint = bodyInterface.CreateConstraint( pSettings, pRefObject->GetBodyID(), pAttObject->GetBodyID() );
 			pConstraint->RestoreState( recorder );
 			m_PhysicsSystem.AddConstraint( pConstraint );
-			JoltPhysicsConstraint* pJoltConstraint = new JoltPhysicsConstraint( this, pRefObject, pAttObject, type, pConstraint, params.pGameData );
-			*params.ppObject = reinterpret_cast<void*>( pJoltConstraint );
-			AddPhysicsSaveRestorePointer( constraintPtr, pJoltConstraint );
+
+			JoltPhysicsConstraint *pJoltConstraint = new JoltPhysicsConstraint( this, pRefObject, pAttObject, type, pConstraint, params.pGameData );
+			pJoltConstraint->SetGroup( pGroup );
+
+			*params.ppObject = reinterpret_cast< void * >( pJoltConstraint );
+			AddPhysicsSaveRestorePointer( originalPtr, pJoltConstraint );
 			return true;
 		}
 		case PIID_IPHYSICSSHADOWCONTROLLER:
-			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSSHADOWCONTROLLER is unsupported right now.\n" );
+			// This just returns false in regular VPhysics.
 			return false;
 		case PIID_IPHYSICSPLAYERCONTROLLER:
 			// Given saving this just returns false, this should never happen.
 			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSPLAYERCONTROLLER is unsupported right now.\n" );
 			return false;
 		case PIID_IPHYSICSMOTIONCONTROLLER:
-			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSMOTIONCONTROLLER is unsupported right now.\n" );
-			return false;
+		{
+			uintp originalPtr;
+			int objectsCount;
+
+			recorder.Read( originalPtr );
+			recorder.Read( objectsCount );
+
+			JoltPhysicsMotionController *pJoltMotionController = static_cast< JoltPhysicsMotionController * >( CreateMotionController( NULL ) );
+			for ( int i = 0; i < objectsCount; i++ )
+			{
+				uintp objectPtr;
+				recorder.Read( objectPtr );
+
+				JoltPhysicsObject *pJoltObject = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( objectPtr );
+				pJoltMotionController->AttachObject( pJoltObject, true );
+			}
+
+			*params.ppObject = reinterpret_cast< void * >( pJoltMotionController );
+			AddPhysicsSaveRestorePointer( originalPtr, pJoltMotionController );
+			return true;
+		}
 		case PIID_IPHYSICSVEHICLECONTROLLER:
-			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSVEHICLECONTROLLER is unsupported right now.\n" );
-			return false;
+		{
+			uintp originalPtr, bodyObjectPtr;
+			int wheelCount;
+			recorder.Read( originalPtr );
+			recorder.Read( bodyObjectPtr );
+			recorder.Read( wheelCount );
+
+			JoltPhysicsObject **pWheels = (JoltPhysicsObject **)stackalloc( sizeof( JoltPhysicsObject * ) * wheelCount );
+			for ( int i = 0; i < wheelCount; i++ )
+			{
+				uintp wheelObjectPtr;
+				recorder.Read( wheelObjectPtr );
+
+				pWheels[i] = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( wheelObjectPtr );
+			}
+
+			JoltPhysicsObject *pBodyObject = LookupPhysicsSaveRestorePointer< JoltPhysicsObject >( bodyObjectPtr );
+			JoltPhysicsVehicleController *pVehicleController = static_cast< JoltPhysicsVehicleController * >( CreateVehicleController( pBodyObject, wheelCount, pWheels, recorder ) );
+
+			*params.ppObject = reinterpret_cast< void * >( pVehicleController );
+			AddPhysicsSaveRestorePointer( originalPtr, pVehicleController );
+			return true;
+		}
 		case PIID_IPHYSICSGAMETRACE:
+			// Given saving this just returns false, this should never happen.
 			Log_Warning( LOG_VJolt, "Restoring PIID_IPHYSICSGAMETRACE is unsupported right now.\n" );
 			return false;
 	}
@@ -1342,7 +1521,7 @@ IPhysicsObject *JoltPhysicsEnvironment::UnserializeObjectFromBuffer( void *pGame
 	JPH::Body *pBody = bodyInterface.CreateBody( bodyCreationSettings );
 	bodyInterface.AddBody( pBody->GetID(), JPH::EActivation::Activate );
 
-	JoltPhysicsObject *pJoltObject = new JoltPhysicsObject( pBody, this, pGameData, recorder );
+	JoltPhysicsObject *pJoltObject = new JoltPhysicsObject( pBody, this, pGameData, "NoName", recorder );
 	pJoltObject->EnableCollisions( enableCollisions );
 	return pJoltObject;
 }

@@ -1,6 +1,8 @@
 
 #include "cbase.h"
 
+#include "vjolt_surfaceprops.h"
+
 #include "vjolt_controller_shadow.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
@@ -16,6 +18,12 @@ JoltPhysicsShadowController::JoltPhysicsShadowController( JoltPhysicsObject *pOb
 
 	m_savedCallbackFlags = m_pObject->GetCallbackFlags();
 	m_pObject->SetCallbackFlags( m_savedCallbackFlags | CALLBACK_SHADOW_COLLISION );
+}
+
+JoltPhysicsShadowController::JoltPhysicsShadowController( JoltPhysicsObject *pObject, JPH::StateRecorder &recorder )
+	: m_pObject( pObject )
+{
+	RestoreControllerState( recorder );
 }
 
 JoltPhysicsShadowController::~JoltPhysicsShadowController()
@@ -168,4 +176,44 @@ void JoltPhysicsShadowController::OnPreSimulate( float flDeltaTime )
 	}
 
 	m_secondsToArrival = Max( m_secondsToArrival - flDeltaTime, 0.0f );
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void JoltPhysicsShadowController::SaveControllerState( JPH::StateRecorder &recorder )
+{
+	recorder.Write( m_targetPosition );
+	recorder.Write( m_targetRotation );
+	recorder.Write( m_secondsToArrival );
+	recorder.Write( m_maxSpeed );
+	recorder.Write( m_maxDampSpeed );
+	recorder.Write( m_maxAngular );
+	recorder.Write( m_maxDampAngular );
+	recorder.Write( m_teleportDistance );
+	recorder.Write( m_isPhysicallyControlled );
+	recorder.Write( m_allowTranslation );
+	recorder.Write( m_allowRotation );
+	recorder.Write( m_enabled );
+	JoltPhysicsMaterialIndexSaveOps::GetInstance().SaveJolt( m_savedMaterialIndex, recorder );
+	recorder.Write( m_savedCallbackFlags );
+}
+
+//-------------------------------------------------------------------------------------------------
+
+void JoltPhysicsShadowController::RestoreControllerState( JPH::StateRecorder &recorder )
+{
+	recorder.Read( m_targetPosition );
+	recorder.Read( m_targetRotation );
+	recorder.Read( m_secondsToArrival );
+	recorder.Read( m_maxSpeed );
+	recorder.Read( m_maxDampSpeed );
+	recorder.Read( m_maxAngular );
+	recorder.Read( m_maxDampAngular );
+	recorder.Read( m_teleportDistance );
+	recorder.Read( m_isPhysicallyControlled );
+	recorder.Read( m_allowTranslation );
+	recorder.Read( m_allowRotation );
+	recorder.Read( m_enabled );
+	JoltPhysicsMaterialIndexSaveOps::GetInstance().RestoreJolt( m_savedMaterialIndex, recorder );
+	recorder.Read( m_savedCallbackFlags );
 }

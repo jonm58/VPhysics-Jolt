@@ -39,6 +39,9 @@ public:
 	void AddConstraint( JoltPhysicsConstraint *pConstraint );
 	void RemoveConstraint( JoltPhysicsConstraint *pConstraint );
 
+	void SaveConstraintGroup( JPH::StateRecorder &recorder );
+	void RestoreConstraintGroup( JPH::StateRecorder &recorder );
+
 private:
 	std::vector< JoltPhysicsConstraint * >	m_pConstraints;
 	constraint_groupparams_t				m_ErrorParams = {};
@@ -58,6 +61,9 @@ public:
 
 	IPhysicsObject *GetReferenceObject() const override;
 	IPhysicsObject *GetAttachedObject() const override;
+
+	void						SetGroup( IPhysicsConstraintGroup* pGroup );
+	IPhysicsConstraintGroup*	GetGroup() const;
 
 	void			SetLinearMotor( float speed, float maxLinearImpulse ) override;
 	void			SetAngularMotor( float rotSpeed, float maxAngularImpulse ) override;
@@ -84,8 +90,6 @@ public:
 	void SaveConstraintSettings( JPH::StateRecorder &recorder );
 
 private:
-
-	void SetGroup( IPhysicsConstraintGroup *pGroup );
 
 	void DestroyConstraint();
 

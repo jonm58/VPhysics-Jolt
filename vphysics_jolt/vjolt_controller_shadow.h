@@ -8,6 +8,7 @@ class JoltPhysicsShadowController final : public IPhysicsShadowController, publi
 {
 public:
 	JoltPhysicsShadowController( JoltPhysicsObject *pObject, bool allowTranslation, bool allowRotation );
+	JoltPhysicsShadowController( JoltPhysicsObject *pObject, JPH::StateRecorder &recorder );
 	~JoltPhysicsShadowController() override;
 
 	void Update( const Vector &position, const QAngle &angles, float timeOffset ) override;
@@ -31,6 +32,9 @@ public:
 	
 	// IJoltPhysicsController
 	void OnPreSimulate( float flDeltaTime ) override;
+
+	void SaveControllerState( JPH::StateRecorder &recorder );
+	void RestoreControllerState( JPH::StateRecorder &recorder );
 
 private:
 	JoltPhysicsObject *m_pObject = nullptr;
