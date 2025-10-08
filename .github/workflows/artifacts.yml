@@ -9,7 +9,7 @@ jobs:
       matrix:
         source_branch: [sdk2013-sp, sdk2013-mp, asw, gmod]
 
-    runs-on: windows-2022
+    runs-on: windows-2025
 
     steps:
     - name: Checkout Mini Source SDK
