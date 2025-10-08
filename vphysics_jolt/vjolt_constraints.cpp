@@ -14,6 +14,16 @@
 
 #include "vjolt_layers.h"
 
+#include "tier0/basetypes.h"
+#include "mathlib/mathlib.h"
+
+enum MatrixAxisType_t
+{
+	X_AXIS = 0,
+	Y_AXIS = 1,
+	Z_AXIS = 2,
+};
+
 //-------------------------------------------------------------------------------------------------
 
 static ConVar vjolt_constraint_velocity_substeps( "vjolt_constraint_velocity_substeps", "0" );

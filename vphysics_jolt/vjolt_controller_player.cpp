@@ -221,6 +221,9 @@ void JoltPhysicsPlayerController::OnContactAdded( const JPH::CharacterVirtual* i
 
 static void CheckCollision( JoltPhysicsObject *pObject, JPH::CollideShapeCollector &ioCollector, JPH::BodyFilter &ioFilter )
 {
+	if ( !pObject->IsCollisionEnabled() ) 
+	    return;
+	
 	JPH::PhysicsSystem *pSystem = pObject->GetEnvironment()->GetPhysicsSystem();
 
 	if ( !pObject->IsCollisionEnabled() )
@@ -288,7 +291,8 @@ private:
 uint32 JoltPhysicsPlayerController::GetContactState( uint16 nGameFlags )
 {
 	// This does not seem to affect much, we should aspire to have our physics be as 1:1 to brush collisions as possible anyway
-#ifdef GAME_PORTAL2_OR_NEWER
+	// Raphael: I was getting stuck at the slightest touch with this enabled on 64x Gmod.
+#if defined(GAME_PORTAL2_OR_NEWER) && !defined(GAME_GMOD)
 	if ( !m_pObject->IsCollisionEnabled() )
 		return 0;
 
@@ -412,6 +416,31 @@ void JoltPhysicsPlayerController::OnPreSimulate( float flDeltaTime )
 		}
 		vControllerVelocity += vGroundVelocity;
 
+		/* Way too experimental
+		if (m_pCharacter->IsSupported())
+		{
+			auto groundBodyID = m_pCharacter->GetGroundBodyID();
+			if (!groundBodyID.IsInvalid())
+			{
+				const JPH::BodyLockInterfaceNoLock &bodyLockInterface = m_pObject->GetEnvironment()->GetPhysicsSystem()->GetBodyLockInterfaceNoLock();
+				JPH::Body *body = bodyLockInterface.TryGetBody(groundBodyID);
+
+				if (body && body->IsDynamic())
+				{
+					// RaphaelIT7: We remove any velocity below this because else often you cannot jump off moving props.
+					constexpr float kVelocityEpsilon = 0.025f;
+					if (fabsf(vControllerVelocity.x) < kVelocityEpsilon)
+						vControllerVelocity.x = 0.0f;
+
+					if (fabsf(vControllerVelocity.y) < kVelocityEpsilon)
+						vControllerVelocity.y = 0.0f;
+
+					if (fabsf(vControllerVelocity.z) < kVelocityEpsilon)
+						vControllerVelocity.z = 0.0f;
+				}
+			}
+		}*/
+
 		m_pCharacter->SetLinearVelocity( SourceToJolt::Distance( vControllerVelocity ) );
 	}
 
@@ -457,19 +486,14 @@ void JoltPhysicsPlayerController::OnPostSimulate( float flDeltaTime )
 		Log_Msg( LOG_VJolt,
 			"Player State:\n"
 			"  vOldPosition: %g %g %g\n"
-			"  vOldVelocity: %g %g %g\n"
 			"  vNewPosition: %g %g %g\n"
 			"  vNewVelocity: %g %g %g\n"
-			"  m_vLastImpulse: %g %g %g\n"
-			"  vControllerVelocity: %g %g %g\n"
-			"  vGroundVelocity: %g %g %g\n",
-			vOldPosition.x, vOldPosition.x, vOldPosition.z,
-			vOldVelocity.x, vOldVelocity.x, vOldVelocity.z,
+			"  m_vLastImpulse: %g %g %g\n",
+			m_vOldPosition.x, m_vOldPosition.x, m_vOldPosition.z,
 			vNewPosition.x, vNewPosition.x, vNewPosition.z,
 			vNewVelocity.x, vNewVelocity.x, vNewVelocity.z,
-			m_vLastImpulse.x, m_vLastImpulse.x, m_vLastImpulse.z,
-			vControllerVelocity.x, vControllerVelocity.x, vControllerVelocity.z,
-			vGroundVelocity.x, vGroundVelocity.x, vGroundVelocity.z );
+			m_vLastImpulse.x, m_vLastImpulse.x, m_vLastImpulse.z
+		);
 #endif
 	}
 
