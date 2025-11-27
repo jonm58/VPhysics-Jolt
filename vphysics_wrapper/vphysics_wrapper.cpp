@@ -32,6 +32,12 @@ public:
 	void Shutdown() override;
 	void *QueryInterface( const char *pInterfaceName ) override;
 
+#if PLATFORM_64BITS
+	const AppSystemInfo_t *GetDependencies( ) override { return NULL; };
+	AppSystemTier_t GetTier() override { return APP_SYSTEM_TIER2; };
+	void Reconnect( CreateInterfaceFn factory, const char *pInterfaceName ) override {};
+#endif
+
 	IPhysicsEnvironment *CreateEnvironment() override;
 	void DestroyEnvironment( IPhysicsEnvironment *pEnvironment ) override;
 	IPhysicsEnvironment *GetActiveEnvironmentByIndex( int index ) override;
@@ -42,6 +48,10 @@ public:
 	IPhysicsCollisionSet *FindOrCreateCollisionSet( unsigned int id, int maxElementCount ) override;
 	IPhysicsCollisionSet *FindCollisionSet( unsigned int id ) override;
 	void DestroyAllCollisionSets() override;
+
+#if GAME_GMOD
+	bool IsValidPhysicsObject( IPhysicsObject* pObject ) override;
+#endif
 
 public:
 	static PhysicsWrapper &GetInstance() { return s_PhysicsInterface; }
@@ -206,3 +216,10 @@ void PhysicsWrapper::DestroyAllCollisionSets()
 {
 	m_pActualPhysicsInterface->DestroyAllCollisionSets();
 }
+
+#if GAME_GMOD
+bool PhysicsWrapper::IsValidPhysicsObject( IPhysicsObject* pObject )
+{
+	return m_pActualPhysicsInterface->IsValidPhysicsObject( pObject );
+}
+#endif
