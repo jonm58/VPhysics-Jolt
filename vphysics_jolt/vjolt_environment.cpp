@@ -36,7 +36,7 @@
 //-------------------------------------------------------------------------------------------------
 
 // This is the max amount of rigid bodies that you can add to the physics system. If you try to add more you'll get an error.
-static constexpr uint kMaxBodies = 16384;
+static constexpr uint kMaxBodies = 65536;
 
 // This determines how many mutexes to allocate to protect rigid bodies from concurrent access. Set it to 0 for the default settings.
 static constexpr uint kNumBodyMutexes = 0;
@@ -919,7 +919,7 @@ void JoltPhysicsEnvironment::SetCollisionEventHandler( IPhysicsCollisionEvent *p
 
 void JoltPhysicsEnvironment::SetObjectEventHandler( IPhysicsObjectEvent *pObjectEvents )
 {
-	Log_Stub( LOG_VJolt );
+	m_pObjectEvents = pObjectEvents;
 }
 
 void JoltPhysicsEnvironment::SetConstraintEventHandler( IPhysicsConstraintEvent *pConstraintEvents )
@@ -1121,7 +1121,7 @@ void JoltPhysicsEnvironment::PreRestore( const physprerestoreparams_t &params )
 {
 	m_SaveRestorePointerMap.clear();
 
-#if defined(GAME_GMOD_64X)
+#if defined( GAME_GMOD_64X )
 	Log_Stub( LOG_VJolt ); // Raphael (ToDo): Figure out what happens here normally... I should check the SDK again and see if we have the previous structure used by all other branches.
 #else
 	for ( int i = 0; i < params.recreatedObjectCount; i++ )
@@ -1507,6 +1507,15 @@ void JoltPhysicsEnvironment::DestroyCollideOnDeadObjectFlush( CPhysCollide *pCol
 
 //-------------------------------------------------------------------------------------------------
 
+#if GAME_GMOD
+void JoltPhysicsEnvironment::SetGModObjectEventHandler( IGModPhysicsObjectEvent *pGModObjectEvent )
+{
+	m_pGModObjectEvents = pGModObjectEvent;
+}
+#endif
+
+//-------------------------------------------------------------------------------------------------
+
 void JoltPhysicsEnvironment::ObjectTransferHandOver( JoltPhysicsObject *pObject )
 {
 	JPH::BodyInterface &bodyInterface = m_PhysicsSystem.GetBodyInterfaceNoLock();
@@ -1616,7 +1625,7 @@ void JoltPhysicsEnvironment::HandleDebugDumpingEnvironment( void *pReturnAddress
 	s_bShouldDumpEnvironmentServer = false;
 }
 
-#if defined(GAME_GMOD_64X)
+#if defined( GAME_GMOD_64X )
 // NOTE: physprerestoreparams_t was named to physpresaverestoreparams_t though we kept the original for now.
 void JoltPhysicsEnvironment::PreSave(const physprerestoreparams_t& params)
 {
